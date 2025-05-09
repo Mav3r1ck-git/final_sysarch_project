@@ -28,8 +28,8 @@ $stmt = $conn->prepare("
 $stmt->execute();
 $logged_out_sitins = $stmt->fetchAll();
 
-// Get all students
-$stmt = $conn->prepare("SELECT * FROM users ORDER BY last_name, first_name");
+// Get all students with total sit-ins
+$stmt = $conn->prepare("SELECT u.*, (SELECT COUNT(*) FROM logged_out_sitins ls WHERE ls.user_id = u.user_id) as total_sitins FROM users u ORDER BY last_name, first_name");
 $stmt->execute();
 $students = $stmt->fetchAll();
 
@@ -64,6 +64,49 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
     $stmt->execute([$search, $search, $search, $search]);
     $search_results = $stmt->fetchAll();
 }
+
+// Fetch pending sit-in reservations
+$stmt = $conn->prepare("SELECT r.*, u.first_name, u.last_name, u.course, u.year_level FROM sit_in_reservations r JOIN users u ON r.user_id = u.user_id WHERE r.status = 'pending' ORDER BY r.created_at DESC");
+$stmt->execute();
+$pending_reservations = $stmt->fetchAll();
+
+// Computer Lab Management logic
+$selected_lab = isset($_GET['manage_lab']) ? $_GET['manage_lab'] : '';
+$pc_status_filter = isset($_GET['pc_status']) ? $_GET['pc_status'] : 'all';
+$lab_pcs = [];
+if ($selected_lab) {
+    $query = "SELECT lp.*, cs.user_id AS used_by FROM lab_pcs lp LEFT JOIN current_sitins cs ON lp.lab = cs.lab AND lp.pc_number = cs.pc_number WHERE lp.lab = ?";
+    $params = [$selected_lab];
+    if ($pc_status_filter === 'available') {
+        $query .= " AND lp.is_available = 1";
+    } elseif ($pc_status_filter === 'used') {
+        $query .= " AND lp.is_available = 0";
+    }
+    $query .= " ORDER BY lp.pc_number ASC";
+    $stmt = $conn->prepare($query);
+    $stmt->execute($params);
+    $lab_pcs = $stmt->fetchAll();
+}
+
+// Logs module logic
+$logs_search = isset($_GET['logs_search']) ? trim($_GET['logs_search']) : '';
+$logs_filter = isset($_GET['logs_filter']) ? $_GET['logs_filter'] : 'all';
+$logs_query = "SELECT r.*, u.first_name, u.last_name, u.course, u.year_level FROM sit_in_reservations r JOIN users u ON r.user_id = u.user_id WHERE r.status IN ('approved', 'rejected')";
+$logs_params = [];
+if ($logs_search !== '') {
+    $logs_query .= " AND (u.user_id LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR u.course LIKE ?)";
+    $search_term = "%$logs_search%";
+    $logs_params = array_merge($logs_params, [$search_term, $search_term, $search_term, $search_term]);
+}
+if ($logs_filter === 'approved') {
+    $logs_query .= " AND r.status = 'approved'";
+} elseif ($logs_filter === 'rejected') {
+    $logs_query .= " AND r.status = 'rejected'";
+}
+$logs_query .= " ORDER BY r.created_at DESC";
+$stmt = $conn->prepare($logs_query);
+$stmt->execute($logs_params);
+$logs = $stmt->fetchAll();
 ?>
 
 <!DOCTYPE html>
@@ -730,7 +773,7 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
                                     <td><?php echo $student['course']; ?></td>
                                     <td><?php echo $student['year_level']; ?></td>
                                     <td><?php echo $student['remaining_sessions']; ?></td>
-                                    <td><?php echo $student['total_sitins'] ?? 0; ?></td>
+                                    <td><?php echo $student['total_sitins']; ?></td>
                                     <td><?php echo $student['points']; ?></td>
                                     <td>
                                         <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#editModalList<?php echo $student['id']; ?>">Edit</button>
@@ -827,6 +870,193 @@ if (isset($_GET['search']) && !empty($_GET['search'])) {
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <!-- Sit-in Requests Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Sit-in Reservation Requests</h5>
+            </div>
+            <div class="card-body">
+                <?php if (empty($pending_reservations)): ?>
+                    <p class="text-muted">No pending sit-in reservation requests.</p>
+                <?php else: ?>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Course</th>
+                                    <th>Year</th>
+                                    <th>Lab</th>
+                                    <th>PC Number</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Purpose</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($pending_reservations as $res): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($res['last_name'] . ', ' . $res['first_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($res['course']); ?></td>
+                                        <td><?php echo htmlspecialchars($res['year_level']); ?></td>
+                                        <td><?php echo htmlspecialchars($res['lab']); ?></td>
+                                        <td><?php echo htmlspecialchars($res['pc_number']); ?></td>
+                                        <td><?php echo htmlspecialchars($res['date']); ?></td>
+                                        <td><?php echo htmlspecialchars($res['time']); ?></td>
+                                        <td><?php echo htmlspecialchars($res['purpose']); ?></td>
+                                        <td>
+                                            <form action="process_reservation.php" method="POST" class="d-inline">
+                                                <input type="hidden" name="reservation_id" value="<?php echo $res['id']; ?>">
+                                                <button type="submit" name="action" value="approve" class="btn btn-success btn-sm">Approve</button>
+                                            </form>
+                                            <form action="process_reservation.php" method="POST" class="d-inline">
+                                                <input type="hidden" name="reservation_id" value="<?php echo $res['id']; ?>">
+                                                <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm">Reject</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Computer Lab Management Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Computer Lab Management</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" class="row g-3 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Select Lab</label>
+                        <select name="manage_lab" class="form-select" onchange="this.form.submit()">
+                            <option value="">Choose Lab</option>
+                            <option value="Lab 524" <?php if($selected_lab=='Lab 524') echo 'selected'; ?>>Lab 524</option>
+                            <option value="Lab 526" <?php if($selected_lab=='Lab 526') echo 'selected'; ?>>Lab 526</option>
+                            <option value="Lab 528" <?php if($selected_lab=='Lab 528') echo 'selected'; ?>>Lab 528</option>
+                            <option value="Lab 530" <?php if($selected_lab=='Lab 530') echo 'selected'; ?>>Lab 530</option>
+                            <option value="Lab 542" <?php if($selected_lab=='Lab 542') echo 'selected'; ?>>Lab 542</option>
+                            <option value="Lab 544" <?php if($selected_lab=='Lab 544') echo 'selected'; ?>>Lab 544</option>
+                            <option value="Lab 517" <?php if($selected_lab=='Lab 517') echo 'selected'; ?>>Lab 517</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">PC Status</label>
+                        <select name="pc_status" class="form-select" onchange="this.form.submit()">
+                            <option value="all" <?php if($pc_status_filter=='all') echo 'selected'; ?>>All PC</option>
+                            <option value="available" <?php if($pc_status_filter=='available') echo 'selected'; ?>>Available</option>
+                            <option value="used" <?php if($pc_status_filter=='used') echo 'selected'; ?>>Used</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-primary">View</button>
+                    </div>
+                </form>
+                <?php if ($selected_lab): ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>PC Number</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($lab_pcs as $pc): ?>
+                                    <tr>
+                                        <td><?php echo $pc['pc_number']; ?></td>
+                                        <td>
+                                            <?php if ($pc['is_available']): ?>
+                                                <span class="badge bg-success">Available</span>
+                                            <?php else: ?>
+                                                <span class="badge bg-danger">Used</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted">Select a lab to view its PCs.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Logs Module Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Sit-in Reservation Logs</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" class="row g-3 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Search Student</label>
+                        <input type="text" name="logs_search" class="form-control" placeholder="Search by ID, name, or course..." value="<?php echo htmlspecialchars($logs_search); ?>">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Filter</label>
+                        <select name="logs_filter" class="form-select" onchange="this.form.submit()">
+                            <option value="all" <?php if($logs_filter=='all') echo 'selected'; ?>>All</option>
+                            <option value="approved" <?php if($logs_filter=='approved') echo 'selected'; ?>>Approved</option>
+                            <option value="rejected" <?php if($logs_filter=='rejected') echo 'selected'; ?>>Rejected</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </div>
+                </form>
+                <?php if (empty($logs)): ?>
+                    <p class="text-muted">No logs found.</p>
+                <?php else: ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Course</th>
+                                    <th>Year</th>
+                                    <th>Lab</th>
+                                    <th>PC Number</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Purpose</th>
+                                    <th>Status</th>
+                                    <th>Action Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($logs as $log): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($log['last_name'] . ', ' . $log['first_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($log['course']); ?></td>
+                                        <td><?php echo htmlspecialchars($log['year_level']); ?></td>
+                                        <td><?php echo htmlspecialchars($log['lab']); ?></td>
+                                        <td><?php echo htmlspecialchars($log['pc_number']); ?></td>
+                                        <td><?php echo htmlspecialchars($log['date']); ?></td>
+                                        <td><?php echo htmlspecialchars($log['time']); ?></td>
+                                        <td><?php echo htmlspecialchars($log['purpose']); ?></td>
+                                        <td>
+                                            <?php if ($log['status'] === 'approved'): ?>
+                                                <span class="badge bg-success">Approved</span>
+                                            <?php else: ?>
+                                                <span class="badge bg-danger">Rejected</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?php echo date('M d, Y h:i A', strtotime($log['updated_at'] ?? $log['created_at'])); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>

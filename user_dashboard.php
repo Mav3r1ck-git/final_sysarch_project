@@ -51,6 +51,11 @@ $stmt = $conn->prepare("SELECT * FROM announcements ORDER BY created_at DESC");
 $stmt->execute();
 $announcements = $stmt->fetchAll();
 
+// Fetch notifications for the user
+$stmt = $conn->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC");
+$stmt->execute([$user_id]);
+$notifications = $stmt->fetchAll();
+
 // Handle profile picture upload
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['profile_picture'])) {
     $target_dir = "uploads/profile_pictures/";
@@ -432,10 +437,137 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
                         <?php endif; ?>
                     </div>
                 </div>
+
+                <!-- Reservation Section -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Reserve a Sit-in</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="submit_reservation.php" method="POST">
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Lab</label>
+                                    <select name="lab" class="form-select" required>
+                                        <option value="">Select Lab</option>
+                                        <option value="Lab 524">Lab 524</option>
+                                        <option value="Lab 526">Lab 526</option>
+                                        <option value="Lab 528">Lab 528</option>
+                                        <option value="Lab 530">Lab 530</option>
+                                        <option value="Lab 542">Lab 542</option>
+                                        <option value="Lab 544">Lab 544</option>
+                                        <option value="Lab 517">Lab 517</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">PC Number</label>
+                                    <select name="pc_number" class="form-select" required>
+                                        <option value="" disabled selected>Select PC Number</option>
+                                        <?php for ($i = 1; $i <= 30; $i++): ?>
+                                            <option value="<?php echo $i; ?>">PC <?php echo $i; ?></option>
+                                        <?php endfor; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Date</label>
+                                    <input type="date" name="date" class="form-control" required>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Time</label>
+                                    <input type="time" name="time" class="form-control" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Purpose</label>
+                                    <select name="purpose" class="form-select" required onchange="toggleOtherPurpose(this)">
+                                        <option value="" disabled selected>Select Purpose</option>
+                                        <option value="C Programming">C Programming</option>
+                                        <option value="Java Programming">Java Programming</option>
+                                        <option value="System Integration & Architecture">System Integration & Architecture</option>
+                                        <option value="Embeded System & IOT">Embeded System & IOT</option>
+                                        <option value="Digital Logic & Design">Digital Logic & Design</option>
+                                        <option value="Computer Application">Computer Application</option>
+                                        <option value="Database">Database</option>
+                                        <option value="Project Management">Project Management</option>
+                                        <option value="Others">Others</option>
+                                    </select>
+                                    <div class="mt-2" id="otherPurposeDiv" style="display: none;">
+                                        <input type="text" class="form-control" name="other_purpose" placeholder="Please specify other purpose">
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Submit Reservation</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Notifications Section -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Notifications</h5>
+                    </div>
+                    <div class="card-body">
+                        <?php if (empty($notifications)): ?>
+                            <p class="text-muted">No notifications.</p>
+                        <?php else: ?>
+                            <ul class="list-group">
+                                <?php foreach ($notifications as $notif): ?>
+                                    <li class="list-group-item<?php echo !$notif['is_read'] ? ' list-group-item-info' : ''; ?>">
+                                        <?php echo htmlspecialchars($notif['message']); ?>
+                                        <br><small class="text-muted"><?php echo date('M d, Y h:i A', strtotime($notif['created_at'])); ?></small>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Rules & Regulations Section -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Rules & Regulations</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="scroll-box" style="max-height: 300px; overflow-y: auto;">
+                            <h5 class="text-center fw-bold">University of Cebu - College of Information & Computer Studies</h5>
+                            <p><strong>Laboratory Rules and Regulations</strong></p>
+                            <ul>
+                                <li>Maintain silence, proper decorum, and discipline inside the lab.</li>
+                                <li>Games, unauthorized surfing, and software installations are not allowed.</li>
+                                <li>Accessing illicit websites is strictly prohibited.</li>
+                                <li>Deleting files or modifying computer settings is a major offense.</li>
+                                <li>Observe computer usage time. Exceeding limits will result in loss of access.</li>
+                                <li>Follow seating arrangements and return chairs properly.</li>
+                                <li>No eating, drinking, smoking, or vandalism inside the lab.</li>
+                                <li>Disruptive behavior may result in being asked to leave.</li>
+                                <li>For serious offenses, security personnel may be called.</li>
+                                <li>Report technical issues to lab supervisors immediately.</li>
+                            </ul>
+                            <p><strong>DISCIPLINARY ACTION</strong></p>
+                            <ul>
+                                <li><strong>First Offense:</strong> Warning or possible suspension.</li>
+                                <li><strong>Second Offense:</strong> Heavier disciplinary action.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    function toggleOtherPurpose(select) {
+        const otherPurposeDiv = select.parentElement.querySelector('#otherPurposeDiv');
+        if (select.value === 'Others') {
+            otherPurposeDiv.style.display = 'block';
+            otherPurposeDiv.querySelector('input').required = true;
+        } else {
+            otherPurposeDiv.style.display = 'none';
+            otherPurposeDiv.querySelector('input').required = false;
+        }
+    }
+    </script>
 </body>
 </html> 

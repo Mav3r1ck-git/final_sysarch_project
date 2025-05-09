@@ -60,14 +60,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ");
         $stmt->execute([$lab, $pc_number]);
 
-        // Decrease remaining sessions
-        $stmt = $conn->prepare("
-            UPDATE users 
-            SET remaining_sessions = remaining_sessions - 1 
-            WHERE user_id = ?
-        ");
-        $stmt->execute([$user_id]);
-
         // Commit transaction
         $conn->commit();
 

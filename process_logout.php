@@ -60,19 +60,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$session['lab'], $session['pc_number']]);
 
         // If rewarded, add points
+        $bonus_awarded = false;
         if ($was_rewarded) {
+            // Add 1 point
             $stmt = $conn->prepare("
                 UPDATE users 
                 SET points = points + 1 
                 WHERE user_id = ?
             ");
             $stmt->execute([$user_id]);
+
+            // Check if points is now divisible by 3
+            $stmt = $conn->prepare("SELECT points FROM users WHERE user_id = ?");
+            $stmt->execute([$user_id]);
+            $user = $stmt->fetch();
+            if ($user && $user['points'] % 3 == 0) {
+                // Add 1 bonus session
+                $stmt = $conn->prepare("UPDATE users SET remaining_sessions = remaining_sessions + 1 WHERE user_id = ?");
+                $stmt->execute([$user_id]);
+                $bonus_awarded = true;
+            }
         }
 
-        // Increment total_sitins for the user
+        // Decrease remaining_sessions by 1 (for both logout and reward)
         $stmt = $conn->prepare("
             UPDATE users 
-            SET total_sitins = total_sitins + 1 
+            SET remaining_sessions = remaining_sessions - 1 
             WHERE user_id = ?
         ");
         $stmt->execute([$user_id]);
@@ -80,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Commit transaction
         $conn->commit();
 
-        $_SESSION['success'] = "Student logged out successfully" . ($was_rewarded ? " and rewarded" : "") . ".";
+        $_SESSION['success'] = "Student logged out successfully" . ($was_rewarded ? " and rewarded" : "") . ($bonus_awarded ? " (Bonus session awarded!)" : "") . ".";
     } catch (PDOException $e) {
         // Rollback transaction on error
         $conn->rollBack();
